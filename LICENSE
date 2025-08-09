@@ -1,0 +1,44 @@
+MIT License
+
+Copyright (c) 2024 Sui DLMM Team
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+Additional Information:
+
+This SDK is designed to interact with the Sui Dynamic Liquidity Market Maker 
+(DLMM) Protocol. While the SDK is open source under MIT license, users should 
+be aware that:
+
+1. The underlying smart contracts on the Sui blockchain may have their own 
+   licensing terms and conditions.
+
+2. This SDK is provided for educational and development purposes. Users should 
+   conduct their own security audits before using in production environments.
+
+3. The DLMM protocol involves financial risks including but not limited to 
+   impermanent loss, smart contract risks, and market volatility.
+
+4. Users are responsible for compliance with applicable laws and regulations 
+   in their jurisdiction.
+
+5. The SDK maintainers are not responsible for any financial losses incurred 
+   through the use of this software.
