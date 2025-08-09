@@ -1161,12 +1161,12 @@ export class PositionManager {
       if (inTokenA) {
         // Convert everything to token A
         const totalA = liquidityA + feesA;
-        const totalBInA = (liquidityB + feesB) / price;
+        const totalBInA = (liquidityB + feesB) * price;
         return (totalA + totalBInA).toString();
       } else {
         // Convert everything to token B
         const totalB = liquidityB + feesB;
-        const totalAInB = (liquidityA + feesA) * price;
+        const totalAInB = (liquidityA + feesA) / price;
         return (totalB + totalAInB).toString();
       }
     } catch (error) {
