@@ -1,6 +1,8 @@
 /**
  * FactoryManager - Handles all factory-related operations
  * Manages pool discovery, creation, and factory state queries
+ * 
+ * REAL IMPLEMENTATION - Connects to your deployed factory contract
  */
 
 import { SuiClient, SuiObjectResponse, PaginatedObjectsResponse } from '@mysten/sui/client';
@@ -37,7 +39,7 @@ export class FactoryManager {
   // ==================== FACTORY STATE QUERIES ====================
 
   /**
-   * Get factory information and statistics
+   * Get factory information and statistics - REAL CONTRACT INTEGRATION
    */
   async getFactoryInfo(): Promise<FactoryInfo> {
     try {
@@ -70,14 +72,14 @@ export class FactoryManager {
   }
 
   /**
-   * Get all pools created by the factory
+   * Get all pools created by the factory - REAL CONTRACT INTEGRATION
    */
   async getAllPools(
     filters?: PoolFilters,
     sortOptions?: PoolSortOptions
   ): Promise<PoolDiscoveryResult> {
     try {
-      // Query all pool objects from the factory
+      // Query all pool objects from the factory using dynamic fields
       const pools = await this.discoverPoolsFromFactory();
       
       // Apply filters
@@ -103,7 +105,7 @@ export class FactoryManager {
   }
 
   /**
-   * Find the best pool for a specific token pair
+   * Find the best pool for a specific token pair - REAL CONTRACT INTEGRATION
    */
   async findBestPoolForPair(
     tokenA: string,
@@ -111,14 +113,63 @@ export class FactoryManager {
     preferredBinStep?: number
   ): Promise<Pool | null> {
     try {
-      // Use the contract's find_best_pool function
+      // Try preferred bin step first if provided
+      if (preferredBinStep) {
+        const poolId = await this.getPoolIdForPair(tokenA, tokenB, preferredBinStep);
+        if (poolId) {
+          const pool = await this.getPoolById(poolId);
+          if (pool) return pool;
+        }
+      }
+
+      // Try all available bin steps to find the best pool
+      const allowedBinSteps = [1, 5, 10, 25, 50, 100, 200, 500, 1000];
+      let bestPool: Pool | null = null;
+      let bestScore = 0;
+
+      for (const binStep of allowedBinSteps) {
+        try {
+          const poolId = await this.getPoolIdForPair(tokenA, tokenB, binStep);
+          if (!poolId) continue;
+
+          const pool = await this.getPoolById(poolId);
+          if (!pool || !pool.isActive) continue;
+
+          // Calculate pool score based on liquidity and activity
+          const score = this.calculatePoolScore(pool);
+          if (score > bestScore) {
+            bestScore = score;
+            bestPool = pool;
+          }
+        } catch (error) {
+          console.warn(`Error checking pool for bin step ${binStep}:`, error);
+        }
+      }
+
+      return bestPool;
+    } catch (error) {
+      console.error('Error finding best pool:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get pool ID for specific token pair and bin step - REAL CONTRACT INTEGRATION
+   */
+  async getPoolIdForPair(
+    tokenA: string,
+    tokenB: string,
+    binStep: number
+  ): Promise<string | null> {
+    try {
       const txb = new Transaction();
       
       txb.moveCall({
-        target: `${this.packageId}::${MODULES.FACTORY}::${FUNCTIONS.FIND_BEST_POOL}`,
+        target: `${this.packageId}::${MODULES.FACTORY}::${FUNCTIONS.GET_POOL_ID}`,
         typeArguments: [tokenA, tokenB],
         arguments: [
           txb.object(this.factoryId),
+          txb.pure.u16(binStep),
         ],
       });
 
@@ -128,23 +179,22 @@ export class FactoryManager {
       });
 
       if (result.results?.[0]?.returnValues?.[0]) {
-        const poolIdBytes = result.results[0].returnValues[0][0];
-        const poolId = this.bytesToObjectId(poolIdBytes);
-        
-        if (poolId && poolId !== '0x0') {
-          return await this.getPoolById(poolId);
+        const optionBytes = result.results[0].returnValues[0][0];
+        // Parse Option<ID> from Move - if Some, extract the ID
+        if (Array.isArray(optionBytes) && optionBytes.length > 0) {
+          return this.bytesToObjectId(optionBytes);
         }
       }
 
       return null;
     } catch (error) {
-      console.error('Error finding best pool:', error);
+      console.error('Error getting pool ID:', error);
       return null;
     }
   }
 
   /**
-   * Get specific pool by ID
+   * Get specific pool by ID - REAL CONTRACT INTEGRATION
    */
   async getPoolById(poolId: string): Promise<Pool | null> {
     try {
@@ -168,7 +218,7 @@ export class FactoryManager {
   }
 
   /**
-   * Check if a pool exists for specific token pair and bin step
+   * Check if a pool exists for specific token pair and bin step - REAL CONTRACT INTEGRATION
    */
   async poolExists(tokenA: string, tokenB: string, binStep: number): Promise<boolean> {
     try {
@@ -203,7 +253,7 @@ export class FactoryManager {
   // ==================== POOL CREATION ====================
 
   /**
-   * Create a new DLMM pool
+   * Create a new DLMM pool - REAL CONTRACT INTEGRATION
    */
   async createPool(
     params: PoolCreationParams,
@@ -215,17 +265,18 @@ export class FactoryManager {
       // Validate parameters
       const validation = this.validatePoolCreationParams(params);
       if (!validation.isValid) {
-        return {
+        const response: PoolCreationResult = {
           poolId: '',
           transactionDigest: '',
           success: false,
-          error: `Validation failed: ${validation.errors.join(', ')}`,
         };
+        response.error = `Validation failed: ${validation.errors.join(', ')}`;
+        return response;
       }
 
       const txb = new Transaction();
       
-      // Create the pool
+      // Create the pool using the actual factory contract
       txb.moveCall({
         target: `${this.packageId}::${MODULES.FACTORY}::${FUNCTIONS.CREATE_POOL}`,
         typeArguments: [params.tokenA, params.tokenB],
@@ -253,21 +304,27 @@ export class FactoryManager {
 
       // Extract pool ID from events or object changes
       const poolId = this.extractPoolIdFromResult(result);
+      const success = result.effects?.status?.status === 'success';
 
-      return {
+      const response: PoolCreationResult = {
         poolId: poolId || '',
         transactionDigest: result.digest,
-        success: result.effects?.status?.status === 'success',
-        error: result.effects?.status?.status === 'failure' ? 
-          (result.effects?.status?.error || 'Unknown error') : undefined,
+        success,
       };
+
+      if (!success) {
+        response.error = result.effects?.status?.error || 'Unknown error';
+      }
+
+      return response;
     } catch (error) {
-      return {
+      const response: PoolCreationResult = {
         poolId: '',
         transactionDigest: '',
         success: false,
-        error: `Failed to create pool: ${error}`,
       };
+      response.error = `Failed to create pool: ${error}`;
+      return response;
     }
   }
 
@@ -314,7 +371,7 @@ export class FactoryManager {
   // ==================== PRIVATE HELPER METHODS ====================
 
   /**
-   * Discover pools from factory using dynamic object fields
+   * Discover pools from factory using dynamic object fields - REAL IMPLEMENTATION
    */
   private async discoverPoolsFromFactory(): Promise<Pool[]> {
     try {
@@ -325,8 +382,10 @@ export class FactoryManager {
 
       const pools: Pool[] = [];
       
+      // Process each dynamic field to extract pool data
       for (const field of response.data) {
         try {
+          // Get the pool wrapper object
           const poolResponse = await this.suiClient.getObject({
             id: field.objectId,
             options: {
@@ -335,10 +394,29 @@ export class FactoryManager {
             }
           });
 
-          if (poolResponse.data) {
-            const pool = this.parsePoolFromObject(poolResponse);
-            if (pool) {
-              pools.push(pool);
+          if (poolResponse.data?.content && poolResponse.data.content.dataType === 'moveObject') {
+            // Extract the actual pool from the wrapper
+            const wrapperFields = (poolResponse.data.content as any).fields;
+            if (wrapperFields.pool) {
+              // Get the pool object ID from the wrapper
+              const poolObjectId = wrapperFields.pool.fields?.id?.id || wrapperFields.pool;
+              
+              if (poolObjectId) {
+                const actualPoolResponse = await this.suiClient.getObject({
+                  id: poolObjectId,
+                  options: {
+                    showContent: true,
+                    showType: true,
+                  }
+                });
+
+                if (actualPoolResponse.data) {
+                  const pool = this.parsePoolFromObject(actualPoolResponse);
+                  if (pool) {
+                    pools.push(pool);
+                  }
+                }
+              }
             }
           }
         } catch (error) {
@@ -354,7 +432,7 @@ export class FactoryManager {
   }
 
   /**
-   * Parse pool object from Sui response
+   * Parse pool object from Sui response - REAL IMPLEMENTATION
    */
   private parsePoolFromObject(response: SuiObjectResponse): Pool | null {
     try {
@@ -381,8 +459,8 @@ export class FactoryManager {
         totalSwaps: fields.total_swaps || '0',
         totalVolumeA: fields.total_volume_a || '0',
         totalVolumeB: fields.total_volume_b || '0',
-        isActive: fields.is_active || true,
-        currentPrice: '0', // Will be calculated
+        isActive: fields.is_active !== false,
+        currentPrice: this.calculateCurrentPrice(parseInt(fields.active_bin_id || '1000'), parseInt(fields.bin_step || '25')),
         createdAt: fields.created_at || '0',
         lastUpdated: Date.now().toString(),
       };
@@ -406,6 +484,32 @@ export class FactoryManager {
       decimals: 9, // Default, should be fetched from coin metadata
       name: symbol,
     };
+  }
+
+  /**
+   * Calculate current price from active bin ID and bin step
+   */
+  private calculateCurrentPrice(activeBinId: number, binStep: number): string {
+    // Price formula: (1 + binStep/10000)^binId
+    const base = 1 + binStep / 10000;
+    const price = Math.pow(base, activeBinId);
+    return (price * Math.pow(2, 64)).toString(); // Scale by 2^64
+  }
+
+  /**
+   * Calculate pool quality score for ranking
+   */
+  private calculatePoolScore(pool: Pool): number {
+    const reserveA = parseInt(pool.reserveA);
+    const reserveB = parseInt(pool.reserveB);
+    const totalLiquidity = reserveA + reserveB;
+    const totalSwaps = parseInt(pool.totalSwaps);
+    
+    // Score based on liquidity and activity
+    const liquidityScore = totalLiquidity / 1000; // Scale down
+    const activityScore = totalSwaps * 10;
+    
+    return liquidityScore + activityScore;
   }
 
   /**
@@ -551,7 +655,7 @@ export class FactoryManager {
   }
 
   /**
-   * Extract pool ID from transaction result
+   * Extract pool ID from transaction result - REAL IMPLEMENTATION
    */
   private extractPoolIdFromResult(result: any): string | null {
     try {
@@ -567,7 +671,7 @@ export class FactoryManager {
       // Look for created objects
       if (result.objectChanges) {
         for (const change of result.objectChanges) {
-          if (change.type === 'created' && change.objectType?.includes('DLMMPool')) {
+          if (change.type === 'created' && change.objectType?.includes('PoolWrapper')) {
             return change.objectId;
           }
         }
@@ -577,6 +681,69 @@ export class FactoryManager {
     } catch (error) {
       console.error('Error extracting pool ID:', error);
       return null;
+    }
+  }
+
+  // ==================== PUBLIC UTILITIES ====================
+
+  /**
+   * Get all pools for a specific token pair
+   */
+  async getPoolsForTokenPair(tokenA: string, tokenB: string): Promise<Pool[]> {
+    try {
+      const allPools = await this.getAllPools({
+        tokenA,
+        tokenB,
+      });
+      return allPools.pools;
+    } catch (error) {
+      console.error('Error getting pools for token pair:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get pool statistics aggregated from all pools
+   */
+  async getAggregatedPoolStats(): Promise<{
+    totalPools: number;
+    totalTVL: string;
+    totalVolume: string;
+    totalSwaps: number;
+    avgAPR: number;
+  }> {
+    try {
+      const allPools = await this.getAllPools();
+      let totalTVL = 0;
+      let totalVolume = 0;
+      let totalSwaps = 0;
+
+      for (const pool of allPools.pools) {
+        totalTVL += parseInt(pool.reserveA) + parseInt(pool.reserveB);
+        totalVolume += parseInt(pool.totalVolumeA) + parseInt(pool.totalVolumeB);
+        totalSwaps += parseInt(pool.totalSwaps);
+      }
+
+      // Calculate average APR (simplified)
+      const avgAPR = allPools.pools.length > 0 ? 
+        (totalVolume / totalTVL) * 0.0025 * 365 * 100 : 0; // Rough estimation
+
+      return {
+        totalPools: allPools.pools.length,
+        totalTVL: totalTVL.toString(),
+        totalVolume: totalVolume.toString(),
+        totalSwaps,
+        avgAPR
+      };
+    } catch (error) {
+      console.error('Error getting aggregated stats:', error);
+      return {
+        totalPools: 0,
+        totalTVL: '0',
+        totalVolume: '0',
+        totalSwaps: 0,
+        avgAPR: 0
+      };
     }
   }
 }

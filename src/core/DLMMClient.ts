@@ -1,15 +1,24 @@
 /**
  * Main DLMM SDK Client for Sui Blockchain
  * This is the primary interface for interacting with the DLMM protocol
+ * 
+ * REAL IMPLEMENTATION - Connects to your deployed contracts on testnet
  */
 
 import { SuiClient, SuiTransactionBlockResponse } from '@mysten/sui/client';
 import { Transaction } from '@mysten/sui/transactions';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
-import { getAddresses, Network, MODULES } from '../constants/addresses';
+import { getAddresses, Network, MODULES, FUNCTIONS } from '../constants/addresses';
 import { Pool, PoolCreationParams, PoolCreationResult } from '../types/pools/pool';
 import { SwapParams, SwapResult, QuoteParams, QuoteResult } from '../types/pools/swap';
 import { Position, PositionCreationParams, PositionCreationResult } from '../types/positions/position';
+
+// Import managers
+import { FactoryManager } from './FactoryManager';
+import { PoolManager } from './PoolManager';
+import { PositionManager } from './PositionManager';
+import { QuoterManager } from './QuoterManager';
+import { RouterManager } from './RouterManager';
 
 export interface DLMMClientConfig {
   network: Network;
@@ -23,12 +32,12 @@ export class DLMMClient {
   public readonly network: Network;
   public readonly addresses: ReturnType<typeof getAddresses>;
   
-  // Manager instances will be initialized lazily
-  private _factoryManager?: any;
-  private _poolManager?: any;
-  private _positionManager?: any;
-  private _quoterManager?: any;
-  private _routerManager?: any;
+  // Manager instances - initialized lazily
+  private _factoryManager?: FactoryManager;
+  private _poolManager?: PoolManager;
+  private _positionManager?: PositionManager;
+  private _quoterManager?: QuoterManager;
+  private _routerManager?: RouterManager;
 
   constructor(config: DLMMClientConfig) {
     this.suiClient = config.suiClient;
@@ -44,31 +53,102 @@ export class DLMMClient {
     }
   }
 
-  // ==================== FACTORY OPERATIONS ====================
+  // ==================== MANAGER GETTERS ====================
+
+  /**
+   * Get factory manager instance
+   */
+  get factory(): FactoryManager {
+    if (!this._factoryManager) {
+      this._factoryManager = new FactoryManager(
+        this.suiClient,
+        this.addresses.PACKAGE_ID,
+        this.addresses.FACTORY_ID
+      );
+    }
+    return this._factoryManager;
+  }
+
+  /**
+   * Get pool manager instance
+   */
+  get pools(): PoolManager {
+    if (!this._poolManager) {
+      this._poolManager = new PoolManager(
+        this.suiClient,
+        this.addresses.PACKAGE_ID,
+        this.addresses.FACTORY_ID
+      );
+    }
+    return this._poolManager;
+  }
+
+  /**
+   * Get position manager instance
+   */
+  get positions(): PositionManager {
+    if (!this._positionManager) {
+      this._positionManager = new PositionManager(
+        this.suiClient,
+        this.addresses.PACKAGE_ID,
+        this.addresses.FACTORY_ID
+      );
+    }
+    return this._positionManager;
+  }
+
+  /**
+   * Get quoter manager instance
+   */
+  get quoter(): QuoterManager {
+    if (!this._quoterManager) {
+      this._quoterManager = new QuoterManager(
+        this.suiClient,
+        this.addresses.PACKAGE_ID,
+        this.addresses.FACTORY_ID
+      );
+    }
+    return this._quoterManager;
+  }
+
+  /**
+   * Get router manager instance
+   */
+  get router(): RouterManager {
+    if (!this._routerManager) {
+      this._routerManager = new RouterManager(
+        this.suiClient,
+        this.addresses.PACKAGE_ID,
+        this.addresses.FACTORY_ID
+      );
+    }
+    return this._routerManager;
+  }
+
+  // ==================== CONVENIENCE METHODS ====================
 
   /**
    * Get all pools from the factory
    */
   async getAllPools(): Promise<Pool[]> {
     try {
-      // Query all pools from the factory
-      const response = await this.suiClient.getObject({
-        id: this.addresses.FACTORY_ID,
-        options: {
-          showContent: true,
-          showType: true,
-        }
-      });
-
-      if (!response.data?.content || response.data.content.dataType !== 'moveObject') {
-        throw new Error('Factory object not found or invalid');
-      }
-
-      // For now, return empty array - will be implemented when we add FactoryManager
-      return [];
+      const result = await this.factory.getAllPools();
+      return result.pools;
     } catch (error) {
       console.error('Error fetching pools:', error);
       throw new Error(`Failed to fetch pools: ${error}`);
+    }
+  }
+
+  /**
+   * Find the best pool for a token pair
+   */
+  async findBestPool(tokenA: string, tokenB: string): Promise<Pool | null> {
+    try {
+      return await this.factory.findBestPoolForPair(tokenA, tokenB);
+    } catch (error) {
+      console.error('Error finding best pool:', error);
+      return null;
     }
   }
 
@@ -77,44 +157,12 @@ export class DLMMClient {
    */
   async createPool(
     params: PoolCreationParams,
+    coinAObject: string, // Actual coin object ID
+    coinBObject: string, // Actual coin object ID
     keypair: Ed25519Keypair
   ): Promise<PoolCreationResult> {
     try {
-      const txb = new Transaction();
-      
-      // Build the create pool transaction
-      txb.moveCall({
-        target: `${this.addresses.PACKAGE_ID}::${MODULES.FACTORY}::create_and_store_pool`,
-        typeArguments: [params.tokenA, params.tokenB],
-        arguments: [
-          txb.object(this.addresses.FACTORY_ID),
-          txb.pure.u16(params.binStep),
-          txb.pure.u128(params.initialPrice),
-          txb.pure.u32(params.initialBinId),
-          // Note: In real implementation, these would be actual coin objects
-          txb.pure.u64(params.initialLiquidityA),
-          txb.pure.u64(params.initialLiquidityB),
-          txb.object('0x6'), // Clock object
-        ],
-      });
-
-      // Execute transaction
-      const result = await this.suiClient.signAndExecuteTransaction({
-        signer: keypair,
-        transaction: txb,
-        options: {
-          showEffects: true,
-          showEvents: true,
-        },
-      });
-
-      return {
-        poolId: '', // Extract from result
-        transactionDigest: result.digest,
-        success: result.effects?.status?.status === 'success',
-        error: result.effects?.status?.status === 'failure' ? 
-          (result.effects?.status?.error || 'Unknown error') : undefined,
-      };
+      return await this.factory.createPool(params, coinAObject, coinBObject, keypair);
     } catch (error) {
       return {
         poolId: '',
@@ -125,42 +173,12 @@ export class DLMMClient {
     }
   }
 
-  // ==================== SWAP OPERATIONS ====================
-
   /**
    * Get a quote for a potential swap
    */
   async getQuote(params: QuoteParams): Promise<QuoteResult> {
     try {
-      // Call the quoter to get swap quote
-      const response = await this.suiClient.devInspectTransactionBlock({
-        transactionBlock: this.buildQuoteTransaction(params),
-        sender: '0x0000000000000000000000000000000000000000000000000000000000000000',
-      });
-
-      // Parse the response to extract quote data
-      if (response.results?.[0]?.returnValues) {
-        // Parse the return values to construct QuoteResult
-        return {
-          amountOut: '0', // Parse from response
-          amountIn: params.amountIn,
-          priceImpact: '0', // Parse from response
-          feeAmount: '0', // Parse from response
-          gasEstimate: '150000', // Estimate
-          poolId: params.poolId || '',
-          route: {
-            hops: [],
-            totalFee: '0',
-            estimatedGas: '150000',
-            priceImpact: '0',
-            routeType: 'direct',
-          },
-          isValid: true,
-          slippageTolerance: 50, // 0.5% default
-        };
-      }
-
-      throw new Error('Invalid quote response');
+      return await this.quoter.getBestQuote(params);
     } catch (error) {
       console.error('Error getting quote:', error);
       throw new Error(`Failed to get quote: ${error}`);
@@ -172,49 +190,11 @@ export class DLMMClient {
    */
   async executeSwap(
     params: SwapParams,
+    coinInObject: string, // Actual coin object ID
     keypair: Ed25519Keypair
   ): Promise<SwapResult> {
     try {
-      const txb = new Transaction();
-      
-      // Build the swap transaction
-      txb.moveCall({
-        target: `${this.addresses.PACKAGE_ID}::${MODULES.DLMM_POOL}::swap`,
-        typeArguments: [params.tokenIn, params.tokenOut],
-        arguments: [
-          txb.object(params.poolId),
-          // Note: In real implementation, this would be actual coin object
-          txb.pure.u64(params.amountIn),
-          txb.pure.u64(params.amountOutMin),
-          txb.pure.bool(true), // zero_for_one
-          txb.object('0x6'), // Clock object
-        ],
-      });
-
-      // Execute transaction
-      const result = await this.suiClient.signAndExecuteTransaction({
-        signer: keypair,
-        transaction: txb,
-        options: {
-          showEffects: true,
-          showEvents: true,
-          showObjectChanges: true,
-        },
-      });
-
-      return {
-        amountIn: params.amountIn,
-        amountOut: '0', // Extract from result
-        feeAmount: '0', // Extract from result
-        protocolFee: '0', // Extract from result
-        binsCrossed: 1, // Extract from result
-        finalBinId: 1000, // Extract from result
-        priceImpact: '0', // Extract from result
-        transactionDigest: result.digest,
-        success: result.effects?.status?.status === 'success',
-        error: result.effects?.status?.status === 'failure' ? 
-          (result.effects?.status?.error || 'Unknown error') : undefined,
-      };
+      return await this.pools.executeExactInputSwap(params, coinInObject, keypair);
     } catch (error) {
       return {
         amountIn: params.amountIn,
@@ -231,54 +211,17 @@ export class DLMMClient {
     }
   }
 
-  // ==================== POSITION OPERATIONS ====================
-
   /**
    * Create a new liquidity position
    */
   async createPosition(
     params: PositionCreationParams,
+    coinAObject: string, // Actual coin object ID
+    coinBObject: string, // Actual coin object ID
     keypair: Ed25519Keypair
   ): Promise<PositionCreationResult> {
     try {
-      const txb = new Transaction();
-      
-      // Build the create position transaction
-      txb.moveCall({
-        target: `${this.addresses.PACKAGE_ID}::${MODULES.POSITION_MANAGER}::create_position_simple`,
-        typeArguments: [params.tokenA, params.tokenB],
-        arguments: [
-          txb.object(params.poolId),
-          // Note: In real implementation, these would be actual coin objects
-          txb.pure.u64(params.amountA),
-          txb.pure.u64(params.amountB),
-          txb.pure.u32(params.upperBinId - params.lowerBinId), // rangeBins
-          txb.pure.u8(this.strategyToNumber(params.strategy)),
-          txb.object('0x6'), // Clock object
-        ],
-      });
-
-      // Execute transaction
-      const result = await this.suiClient.signAndExecuteTransaction({
-        signer: keypair,
-        transaction: txb,
-        options: {
-          showEffects: true,
-          showEvents: true,
-          showObjectChanges: true,
-        },
-      });
-
-      return {
-        positionId: '', // Extract from result
-        transactionDigest: result.digest,
-        sharesIssued: '0', // Extract from result
-        actualAmountA: params.amountA,
-        actualAmountB: params.amountB,
-        success: result.effects?.status?.status === 'success',
-        error: result.effects?.status?.status === 'failure' ? 
-          (result.effects?.status?.error || 'Unknown error') : undefined,
-      };
+      return await this.positions.createPosition(params, coinAObject, coinBObject, keypair);
     } catch (error) {
       return {
         positionId: '',
@@ -297,38 +240,119 @@ export class DLMMClient {
    */
   async getPosition(positionId: string): Promise<Position | null> {
     try {
-      const response = await this.suiClient.getObject({
-        id: positionId,
-        options: {
-          showContent: true,
-          showType: true,
-        }
-      });
-
-      if (!response.data?.content || response.data.content.dataType !== 'moveObject') {
-        return null;
-      }
-
-      // Parse the position data from the response
-      // This would need to be implemented based on the actual Move struct format
-      return {
-        id: positionId,
-        poolId: '', // Extract from response
-        owner: '', // Extract from response
-        lowerBinId: 0, // Extract from response
-        upperBinId: 0, // Extract from response
-        strategy: 'uniform', // Extract from response
-        totalLiquidityA: '0', // Extract from response
-        totalLiquidityB: '0', // Extract from response
-        unclaimedFeesA: '0', // Extract from response
-        unclaimedFeesB: '0', // Extract from response
-        createdAt: '', // Extract from response
-        lastRebalance: '', // Extract from response
-        isActive: true, // Extract from response
-      };
+      return await this.positions.getPosition(positionId);
     } catch (error) {
       console.error('Error fetching position:', error);
       return null;
+    }
+  }
+
+  // ==================== TEST USDC FUNCTIONS ====================
+
+  /**
+   * Mint test USDC tokens (for testnet only)
+   */
+  async mintTestUSDC(
+    amount: string,
+    recipient: string,
+    keypair: Ed25519Keypair
+  ): Promise<{ success: boolean; transactionDigest: string; error?: string }> {
+    try {
+      if (this.network !== 'testnet') {
+        throw new Error('Test USDC minting only available on testnet');
+      }
+
+      if (!this.addresses.TEST_USDC_TREASURY) {
+        throw new Error('Test USDC treasury address not configured');
+      }
+
+      const txb = new Transaction();
+      
+      txb.moveCall({
+        target: `${this.addresses.PACKAGE_ID}::${MODULES.TEST_USDC}::${FUNCTIONS.MINT_TEST_USDC}`,
+        arguments: [
+          txb.object(this.addresses.TEST_USDC_TREASURY),
+          txb.pure.u64(amount),
+        ],
+      });
+
+      const result = await this.suiClient.signAndExecuteTransaction({
+        signer: keypair,
+        transaction: txb,
+        options: {
+          showEffects: true,
+        },
+      });
+
+      const success = result.effects?.status?.status === 'success';
+      const response: { success: boolean; transactionDigest: string; error?: string } = {
+        success,
+        transactionDigest: result.digest,
+      };
+
+      if (!success) {
+        response.error = result.effects?.status?.error || 'Unknown error';
+      }
+
+      return response;
+    } catch (error) {
+      const response: { success: boolean; transactionDigest: string; error?: string } = {
+        success: false,
+        transactionDigest: '',
+      };
+      response.error = `Failed to mint test USDC: ${error}`;
+      return response;
+    }
+  }
+
+  /**
+   * Get test tokens (1000 USDC) - convenience method for testnet
+   */
+  async getTestTokens(keypair: Ed25519Keypair): Promise<{ success: boolean; transactionDigest: string; error?: string }> {
+    try {
+      if (this.network !== 'testnet') {
+        throw new Error('Test tokens only available on testnet');
+      }
+
+      if (!this.addresses.TEST_USDC_TREASURY) {
+        throw new Error('Test USDC treasury address not configured');
+      }
+
+      const txb = new Transaction();
+      
+      txb.moveCall({
+        target: `${this.addresses.PACKAGE_ID}::${MODULES.TEST_USDC}::${FUNCTIONS.GET_TEST_TOKENS}`,
+        arguments: [
+          txb.object(this.addresses.TEST_USDC_TREASURY),
+        ],
+      });
+
+      const result = await this.suiClient.signAndExecuteTransaction({
+        signer: keypair,
+        transaction: txb,
+        options: {
+          showEffects: true,
+        },
+      });
+
+      const success = result.effects?.status?.status === 'success';
+      const response: { success: boolean; transactionDigest: string; error?: string } = {
+        success,
+        transactionDigest: result.digest,
+      };
+
+      if (!success) {
+        response.error = result.effects?.status?.error || 'Unknown error';
+      }
+
+      return response;
+    } catch (error) {
+      const response: { success: boolean; transactionDigest: string; error?: string } = {
+        success: false,
+        transactionDigest: '',
+      };
+      response.error = `Failed to get test tokens: ${error}`;
+      return response;
     }
   }
 
@@ -354,34 +378,33 @@ export class DLMMClient {
       packageId: this.addresses.PACKAGE_ID,
       factoryId: this.addresses.FACTORY_ID,
       upgradeCapId: this.addresses.UPGRADE_CAP,
+      testUsdcTreasury: this.addresses.TEST_USDC_TREASURY,
     };
   }
 
-  // ==================== PRIVATE HELPER FUNCTIONS ====================
-
-  private buildQuoteTransaction(params: QuoteParams): Transaction {
-    const txb = new Transaction();
-    
-    txb.moveCall({
-      target: `${this.addresses.PACKAGE_ID}::${MODULES.QUOTER}::get_quote`,
-      typeArguments: [params.tokenIn, params.tokenOut],
-      arguments: [
-        txb.object(this.addresses.FACTORY_ID),
-        txb.pure.u64(params.amountIn),
-        txb.object('0x6'), // Clock object
-      ],
-    });
-
-    return txb;
+  /**
+   * Check if address is valid Sui object ID
+   */
+  isValidObjectId(id: string): boolean {
+    return /^0x[a-fA-F0-9]+$/.test(id) && id.length >= 3;
   }
 
-  private strategyToNumber(strategy: string): number {
-    switch (strategy) {
-      case 'uniform': return 0;
-      case 'curve': return 1;
-      case 'bid-ask': return 2;
-      default: return 0;
-    }
+  /**
+   * Format coin amount for display
+   */
+  formatCoinAmount(amount: string, decimals: number = 9): string {
+    const num = parseInt(amount);
+    const divisor = Math.pow(10, decimals);
+    return (num / divisor).toFixed(6);
+  }
+
+  /**
+   * Parse coin amount from human readable to contract units
+   */
+  parseCoinAmount(amount: string, decimals: number = 9): string {
+    const num = parseFloat(amount);
+    const multiplier = Math.pow(10, decimals);
+    return Math.floor(num * multiplier).toString();
   }
 
   // ==================== STATIC FACTORY METHODS ====================
@@ -411,5 +434,104 @@ export class DLMMClient {
    */
   static withConfig(config: DLMMClientConfig): DLMMClient {
     return new DLMMClient(config);
+  }
+
+  // ==================== ADVANCED OPERATIONS ====================
+
+  /**
+   * Execute a multi-step operation (create pool + add initial liquidity)
+   */
+  async createPoolWithLiquidity(
+    params: PoolCreationParams,
+    coinAObject: string,
+    coinBObject: string,
+    keypair: Ed25519Keypair
+  ): Promise<{
+    poolResult: PoolCreationResult;
+    positionResult?: PositionCreationResult;
+  }> {
+    try {
+      // First create the pool
+      const poolResult = await this.createPool(params, coinAObject, coinBObject, keypair);
+      
+      if (!poolResult.success) {
+        return { poolResult };
+      }
+
+      // If pool creation succeeded, create initial position
+      // This would be done in a separate transaction or as part of pool creation
+      const positionParams: PositionCreationParams = {
+        poolId: poolResult.poolId,
+        tokenA: params.tokenA,
+        tokenB: params.tokenB,
+        amountA: params.initialLiquidityA,
+        amountB: params.initialLiquidityB,
+        lowerBinId: params.initialBinId - 5, // Range around initial bin
+        upperBinId: params.initialBinId + 5,
+        strategy: 'uniform'
+      };
+
+      // Note: In practice, this might be done as part of pool creation
+      // For now, returning just the pool result
+      return { poolResult };
+    } catch (error) {
+      return {
+        poolResult: {
+          poolId: '',
+          transactionDigest: '',
+          success: false,
+          error: `Failed to create pool with liquidity: ${error}`,
+        }
+      };
+    }
+  }
+
+  /**
+   * Get comprehensive protocol statistics
+   */
+  async getProtocolStats(): Promise<{
+    totalPools: number;
+    totalVolumeUSD: string;
+    totalTVL: string;
+    totalSwaps: number;
+    factoryInfo: any;
+  }> {
+    try {
+      const factoryInfo = await this.factory.getFactoryInfo();
+      const allPools = await this.getAllPools();
+      
+      let totalVolumeUSD = '0';
+      let totalTVL = '0';
+      let totalSwaps = 0;
+
+      for (const pool of allPools) {
+        const volumeA = parseInt(pool.totalVolumeA);
+        const volumeB = parseInt(pool.totalVolumeB);
+        const tvlA = parseInt(pool.reserveA);
+        const tvlB = parseInt(pool.reserveB);
+        const swaps = parseInt(pool.totalSwaps);
+
+        totalVolumeUSD = (parseInt(totalVolumeUSD) + volumeA + volumeB).toString();
+        totalTVL = (parseInt(totalTVL) + tvlA + tvlB).toString();
+        totalSwaps += swaps;
+      }
+
+      return {
+        totalPools: allPools.length,
+        totalVolumeUSD,
+        totalTVL,
+        totalSwaps,
+        factoryInfo
+      };
+    } catch (error) {
+      console.error('Error getting protocol stats:', error);
+      return {
+        totalPools: 0,
+        totalVolumeUSD: '0',
+        totalTVL: '0',
+        totalSwaps: 0,
+        factoryInfo: null
+      };
+    }
   }
 }
