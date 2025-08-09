@@ -3,15 +3,18 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "rollup -c",
+    "dev": "rollup -c -w", 
+    "test": "jest",
+    "type-check": "tsc --noEmit"
   },
-  "keywords": [],
+  "keywords": ["sui", "dlmm", "defi", "amm", "blockchain"],
   "author": "",
   "license": "ISC",
-  "description": "",
+  "description": "SDK for Sui DLMM Protocol with ZK Login support",
   "dependencies": {
-    "@mysten/bcs": "^1.7.0",
-    "@mysten/sui.js": "^0.54.1",
+    "@mysten/sui": "^1.0.0",
+    "@mysten/enoki": "^0.3.0",
     "@types/node": "^24.2.1",
     "typescript": "^5.9.2"
   },

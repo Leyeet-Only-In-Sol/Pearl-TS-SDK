@@ -1,5 +1,6 @@
 /**
  * Swap-related type definitions for Sui DLMM Protocol
+ * Fixed version with proper optional property handling
  */
 
 export interface SwapParams {
@@ -12,6 +13,7 @@ export interface SwapParams {
   deadline?: number; // Unix timestamp
 }
 
+// FIXED: Proper optional handling
 export interface SwapResult {
   amountIn: string;
   amountOut: string;
@@ -22,7 +24,7 @@ export interface SwapResult {
   priceImpact: string; // As percentage
   transactionDigest: string;
   success: boolean;
-  error?: string;
+  error?: string | undefined; // Explicitly allow undefined
 }
 
 export interface QuoteParams {

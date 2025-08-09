@@ -1,5 +1,6 @@
 /**
  * Position-related type definitions for Sui DLMM Protocol
+ * Fixed version with proper optional property handling
  */
 
 export interface Position {
@@ -149,7 +150,7 @@ export interface PositionValidation {
   recommendations: PositionRecommendation[];
 }
 
-// Position creation result
+// Position creation result - FIXED: Proper optional handling
 export interface PositionCreationResult {
   positionId: string;
   transactionDigest: string;
@@ -157,5 +158,5 @@ export interface PositionCreationResult {
   actualAmountA: string;
   actualAmountB: string;
   success: boolean;
-  error?: string;
+  error?: string | undefined; // Explicitly allow undefined
 }

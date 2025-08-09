@@ -1,5 +1,6 @@
 /**
  * Pool-related type definitions for Sui DLMM Protocol
+ * Fixed version with proper optional property handling
  */
 
 export interface Pool {
@@ -108,12 +109,12 @@ export interface LiquidityPoint {
   totalShares: string;
 }
 
-// Pool creation result
+// Pool creation result - FIXED: Proper optional handling
 export interface PoolCreationResult {
   poolId: string;
   transactionDigest: string;
   success: boolean;
-  error?: string;
+  error?: string | undefined; // Explicitly allow undefined
 }
 
 // Pool validation
