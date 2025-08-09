@@ -28,7 +28,7 @@
   "scripts": {
     "build": "rollup -c",
     "build:dev": "NODE_ENV=development rollup -c",
-    "dev": "rollup -c -w", 
+    "dev": "rollup -c -w",
     "test": "node --import tsx/esm ./node_modules/.bin/jest",
     "test:watch": "node --import tsx/esm ./node_modules/.bin/jest --watch",
     "test:coverage": "node --import tsx/esm ./node_modules/.bin/jest --coverage",

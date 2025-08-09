@@ -9,10 +9,7 @@ export default {
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
       useESM: true,
-      tsconfig: {
-        module: 'ESNext',
-        target: 'ES2020',
-      }
+      tsconfig: 'tsconfig.test.json', // Use test-specific tsconfig
     }],
   },
   transformIgnorePatterns: [
@@ -34,5 +31,6 @@ export default {
   setupFilesAfterEnv: ['<rootDir>/tests/setup.ts'],
   testTimeout: 30000,
   maxWorkers: 1,
-  verbose: true
+  verbose: true,
+  injectGlobals: true
 };

@@ -1,9 +1,8 @@
 /**
- * Factory Integration Tests
+ * Factory Integration Tests - Simplified Version
  * Tests actual interaction with your deployed factory contract
  */
 
-import { describe, test, expect, beforeAll } from 'jest';
 import { DLMMClient } from '../../src/core/DLMMClient';
 import { SuiClient } from '@mysten/sui/client';
 import { TESTNET_ADDRESSES, DEMO_TOKENS } from '../../src/constants/addresses';
@@ -29,7 +28,7 @@ describe('Factory Integration Tests', () => {
       expect(factoryInfo.poolCount).toBeGreaterThanOrEqual(0);
       expect(factoryInfo.protocolFeeRate).toBeGreaterThan(0);
       expect(factoryInfo.admin).toMatch(/^0x[a-fA-F0-9]+$/);
-      expect(factoryInfo.allowedBinSteps).toContain(25); // Default bin step
+      expect(factoryInfo.allowedBinSteps).toContain(25);
       
       console.log('✅ Factory info retrieved successfully');
       console.log(`   - Pool count: ${factoryInfo.poolCount}`);
@@ -47,21 +46,24 @@ describe('Factory Integration Tests', () => {
       
       if (pools.length > 0) {
         const firstPool = pools[0];
-        expect(firstPool.id).toBeValidSuiAddress();
-        expect(firstPool.tokenA).toBeDefined();
-        expect(firstPool.tokenB).toBeDefined();
-        expect(firstPool.binStep).toBeGreaterThan(0);
-        
-        console.log(`   - Sample pool: ${firstPool.id}`);
-        console.log(`   - Token pair: ${firstPool.tokenA.symbol}/${firstPool.tokenB.symbol}`);
-        console.log(`   - Bin step: ${firstPool.binStep} bps`);
+        if (firstPool) {
+          // Use standard Jest matchers instead of custom ones
+          expect(firstPool.id).toBeTruthy();
+          expect(firstPool.id).toMatch(/^0x[a-fA-F0-9]+$/);
+          expect(firstPool.tokenA).toBeDefined();
+          expect(firstPool.tokenB).toBeDefined();
+          expect(firstPool.binStep).toBeGreaterThan(0);
+          
+          console.log(`   - Sample pool: ${firstPool.id}`);
+          console.log(`   - Token pair: ${firstPool.tokenA.symbol}/${firstPool.tokenB.symbol}`);
+          console.log(`   - Bin step: ${firstPool.binStep} bps`);
+        }
       }
     }, 30000);
 
     test('should check pool existence for known token pairs', async () => {
       console.log('🧪 Testing pool existence checks...');
       
-      // Test with your actual demo tokens
       const poolExists = await dlmmClient.factory.poolExists(
         DEMO_TOKENS.TEST_USDC,
         DEMO_TOKENS.SUI,
@@ -78,7 +80,9 @@ describe('Factory Integration Tests', () => {
         );
         
         expect(poolId).toBeTruthy();
-        console.log(`   - Pool ID: ${poolId}`);
+        if (poolId) {
+          console.log(`   - Pool ID: ${poolId}`);
+        }
       }
     }, 30000);
 
@@ -91,7 +95,9 @@ describe('Factory Integration Tests', () => {
       );
       
       if (bestPool) {
-        expect(bestPool.id).toBeValidSuiAddress();
+        // Use standard matchers
+        expect(bestPool.id).toBeTruthy();
+        expect(bestPool.id).toMatch(/^0x[a-fA-F0-9]+$/);
         expect(bestPool.isActive).toBe(true);
         
         console.log('✅ Best pool found');

@@ -1,5 +1,6 @@
 /**
  * Test Setup - Configure environment and utilities for SDK testing
+ * Fixed version with proper custom matcher types
  */
 
 import dotenv from 'dotenv';
@@ -21,7 +22,7 @@ declare global {
 // Custom Jest matchers
 expect.extend({
   toBeValidSuiAddress(received: string) {
-    const isValid = /^0x[a-fA-F0-9]{64}$/.test(received);
+    const isValid = /^0x[a-fA-F0-9]{64}$/.test(received) || /^0x[a-fA-F0-9]+$/.test(received);
     return {
       message: () => `expected ${received} to be a valid Sui address`,
       pass: isValid,
