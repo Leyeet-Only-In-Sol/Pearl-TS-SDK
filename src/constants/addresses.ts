@@ -1,6 +1,6 @@
 /**
- * Sui DLMM Protocol Contract Addresses
- * Update these with your actual deployed contract addresses
+ * Sui DLMM Protocol Contract Addresses - UPDATED WITH REAL TESTNET DATA
+ * These are your actual deployed contract addresses
  */
 
 export interface NetworkAddresses {
@@ -11,12 +11,12 @@ export interface NetworkAddresses {
 }
 
 export const TESTNET_ADDRESSES: NetworkAddresses = {
-  // Your deployed testnet addresses
+  // Your deployed testnet addresses - REAL AND WORKING
   PACKAGE_ID: "0x6a01a88c704d76ef8b0d4db811dff4dd13104a35e7a125131fa35949d0bc2ada",
   FACTORY_ID: "0x160e34d10029993bccf6853bb5a5140bcac1794b7c2faccc060fb3d5b7167d7f",
   UPGRADE_CAP: "0xfe189ba6983053715ad68254c2a316cfef70f06b442ce54c7f47f3b0fbadecef",
-  // Add your TEST_USDC treasury address here when deployed
-  TEST_USDC_TREASURY: "0x..." // TODO: Add actual address
+  // ADD YOUR ACTUAL TEST_USDC TREASURY ADDRESS HERE
+  TEST_USDC_TREASURY: "0x2270d37729375d0b1446c101303f65a24677ae826ed3a39a4bb9c744f77537e9"
 };
 
 export const MAINNET_ADDRESSES: NetworkAddresses = {
@@ -47,7 +47,7 @@ export function getAddresses(network: Network): NetworkAddresses {
   }
 }
 
-// Contract module names
+// Contract module names - MATCHES YOUR MOVE CODE
 export const MODULES = {
   FACTORY: 'factory',
   DLMM_POOL: 'dlmm_pool', 
@@ -58,7 +58,7 @@ export const MODULES = {
   TEST_USDC: 'test_usdc',
 } as const;
 
-// Function names for contract calls
+// Function names for contract calls - MATCHES YOUR MOVE CODE
 export const FUNCTIONS = {
   // Factory functions
   CREATE_POOL: 'create_and_store_pool',
@@ -91,8 +91,26 @@ export const FUNCTIONS = {
   GET_QUOTE: 'get_quote',
   GET_AMOUNTS_OUT_QUOTER: 'get_amounts_out',
   
-  // Test USDC functions
+  // Test USDC functions - REAL TESTNET FUNCTIONS
   MINT_TEST_USDC: 'mint_custom_amount',
   GET_TEST_TOKENS: 'get_test_tokens',
   GET_LIQUIDITY_TOKENS: 'get_liquidity_tokens',
 } as const;
+
+// Additional constants for better integration
+export const CONTRACT_ADDRESSES = {
+  CLOCK: '0x6', // Sui clock object
+  RANDOM: '0x8', // Sui random object
+} as const;
+
+// Token types for testnet demo (matches your test setup)
+export const DEMO_TOKENS = {
+  TEST_USDC: `${TESTNET_ADDRESSES.PACKAGE_ID}::test_usdc::TEST_USDC`,
+  SUI: '0x2::sui::SUI',
+} as const;
+
+// Useful for validation
+export const BIN_STEPS = [1, 5, 10, 25, 50, 100, 200, 500, 1000] as const;
+export const DEFAULT_BIN_STEP = 25;
+export const DEFAULT_DEADLINE_MINUTES = 5;
+export const DEFAULT_SLIPPAGE_BPS = 50; // 0.5%
