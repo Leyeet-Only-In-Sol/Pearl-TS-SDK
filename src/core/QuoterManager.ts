@@ -1,5 +1,6 @@
 /**
  * QuoterManager - Handles price quotation and route finding
+ * REAL IMPLEMENTATION - Uses your deployed quoter contract
  * Provides real-time quotes, multi-hop routing, and price impact analysis
  */
 
@@ -46,7 +47,7 @@ export class QuoterManager {
   // ==================== CORE QUOTE FUNCTIONS ====================
 
   /**
-   * Get best quote for token swap with comprehensive route analysis
+   * Get best quote for token swap using your deployed quoter contract
    */
   async getBestQuote(
     params: QuoteParams,
@@ -89,7 +90,7 @@ export class QuoterManager {
   }
 
   /**
-   * Get quote using contract's quoter module
+   * Get quote using your deployed quoter contract
    */
   async getContractQuote(
     tokenIn: string,
@@ -99,6 +100,7 @@ export class QuoterManager {
     try {
       const txb = new Transaction();
       
+      // Use your actual quoter::get_quote function
       txb.moveCall({
         target: `${this.packageId}::${MODULES.QUOTER}::${FUNCTIONS.GET_QUOTE}`,
         typeArguments: [tokenIn, tokenOut],
@@ -122,7 +124,7 @@ export class QuoterManager {
   }
 
   /**
-   * Get comprehensive multi-route quotes
+   * Get comprehensive multi-route quotes using your contract's path finding
    */
   async getMultiRouteQuotes(
     params: QuoteParams,
@@ -136,7 +138,7 @@ export class QuoterManager {
         alternativeRoutes: []
       };
 
-      // 1. Try direct route first
+      // 1. Try direct route first using your quoter
       try {
         const directQuote = await this.getContractQuote(
           params.tokenIn,
@@ -187,12 +189,12 @@ export class QuoterManager {
   // ==================== SINGLE-HOP ROUTING ====================
 
   /**
-   * Get single-hop routes through intermediate tokens
+   * Get single-hop routes through intermediate tokens using your quoter
    */
   async getSingleHopQuotes(params: QuoteParams): Promise<QuoteResult[]> {
     const routes: QuoteResult[] = [];
     
-    // Common intermediate tokens (this should be configurable)
+    // Common intermediate tokens (this should match your testnet demo tokens)
     const intermediateTokens = await this.getCommonIntermediateTokens();
     
     for (const intermediate of intermediateTokens) {
@@ -317,14 +319,15 @@ export class QuoterManager {
   }
 
   /**
-   * Calculate optimal slippage tolerance
+   * Calculate optimal slippage tolerance based on your DLMM's characteristics
    */
   calculateOptimalSlippage(quote: QuoteResult): SlippageConfig {
     const priceImpact = parseFloat(quote.priceImpact);
-    const baseSlippage = 50; // 0.5% base
+    const baseSlippage = 50; // 0.5% base for DLMM
     
     let tolerance = baseSlippage;
     
+    // DLMM has zero slippage within bins, but may have impact across bins
     if (priceImpact > 1) {
       tolerance = Math.min(baseSlippage + priceImpact * 10, 500); // Max 5%
     }
@@ -408,20 +411,18 @@ export class QuoterManager {
   // ==================== HELPER FUNCTIONS ====================
 
   /**
-   * Get common intermediate tokens for routing
+   * Get common intermediate tokens for routing (matches your testnet demo)
    */
   private async getCommonIntermediateTokens(): Promise<string[]> {
-    // This should be fetched from configuration or discovered dynamically
-    // For now, return common tokens that are likely to have good liquidity
+    // This should match your testnet demo tokens
     return [
-      'DEMO_USDC', // Stablecoin - good intermediate
-      'DEMO_ETH',  // Major token - good intermediate
-      'DEMO_BTC',  // Major token - good intermediate
+      `${this.packageId}::test_usdc::TEST_USDC`, // Your test USDC
+      // Add other common tokens that have good liquidity in your testnet
     ];
   }
 
   /**
-   * Parse contract quote result from Move function
+   * Parse contract quote result from Move function response
    */
   private parseContractQuoteResult(
     result: any,
@@ -433,8 +434,8 @@ export class QuoterManager {
       if (result.results?.[0]?.returnValues) {
         const returnValues = result.results[0].returnValues;
         
-        // Parse the returned QuoteResult struct
-        // This parsing depends on your Move contract's return format
+        // Parse the returned QuoteResult struct from your quoter contract
+        // This structure should match your quoter::get_quote return format
         const amountOut = returnValues[0]?.[0] || '0';
         const priceImpact = returnValues[1]?.[0] || '0';
         const feeAmount = returnValues[2]?.[0] || '0';
@@ -595,5 +596,106 @@ export class QuoterManager {
     const amountOut = parseInt(quote.amountOut);
     const slippageMultiplier = (10000 - slippageBps) / 10000;
     return Math.floor(amountOut * slippageMultiplier).toString();
+  }
+
+  /**
+   * Get detailed quote with breakdown for your DLMM protocol
+   */
+  async getDetailedQuote(params: QuoteParams): Promise<{
+    quote: QuoteResult;
+    priceImpactAnalysis: PriceImpactWarning;
+    slippageRecommendation: SlippageConfig;
+    alternativeRoutes: QuoteResult[];
+  }> {
+    const quote = await this.getBestQuote(params);
+    const priceImpactAnalysis = await this.analyzePriceImpact(quote);
+    const slippageRecommendation = this.calculateOptimalSlippage(quote);
+    
+    // Get alternative routes
+    const multiRouteQuote = await this.getMultiRouteQuotes(params);
+    const alternativeRoutes = multiRouteQuote.alternativeRoutes;
+
+    return {
+      quote,
+      priceImpactAnalysis,
+      slippageRecommendation,
+      alternativeRoutes
+    };
+  }
+
+  /**
+   * Simulate swap for validation before execution
+   */
+  async simulateSwap(params: QuoteParams): Promise<{
+    canExecute: boolean;
+    quote: QuoteResult;
+    warnings: string[];
+    errors: string[];
+  }> {
+    const warnings: string[] = [];
+    const errors: string[] = [];
+    let canExecute = true;
+
+    try {
+      const quote = await this.getBestQuote(params);
+      
+      if (!quote.isValid) {
+        errors.push('No valid route found');
+        canExecute = false;
+      }
+
+      if (parseInt(quote.amountOut) === 0) {
+        errors.push('Output amount would be zero');
+        canExecute = false;
+      }
+
+      const priceImpact = parseFloat(quote.priceImpact);
+      if (priceImpact > 5) {
+        warnings.push('High price impact detected');
+      }
+
+      if (priceImpact > 15) {
+        errors.push('Price impact too high - trade may fail');
+        canExecute = false;
+      }
+
+      return {
+        canExecute,
+        quote,
+        warnings,
+        errors
+      };
+    } catch (error) {
+      return {
+        canExecute: false,
+        quote: this.createEmptyQuote(),
+        warnings,
+        errors: [`Simulation failed: ${error}`]
+      };
+    }
+  }
+
+  /**
+   * Get quote with retry logic for reliability
+   */
+  async getQuoteWithRetry(
+    params: QuoteParams,
+    maxRetries: number = 3
+  ): Promise<QuoteResult> {
+    let lastError: Error | null = null;
+    
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        return await this.getBestQuote(params);
+      } catch (error) {
+        lastError = error as Error;
+        if (i < maxRetries - 1) {
+          // Wait before retry with exponential backoff
+          await new Promise(resolve => setTimeout(resolve, Math.pow(2, i) * 1000));
+        }
+      }
+    }
+    
+    throw new Error(`Failed to get quote after ${maxRetries} retries: ${lastError?.message}`);
   }
 }

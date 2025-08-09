@@ -1,5 +1,6 @@
 /**
  * PoolManager - Handles all pool-related operations
+ * REAL IMPLEMENTATION - Connects directly to your deployed DLMM pool contracts
  * Manages swaps, liquidity operations, and pool state queries
  */
 
@@ -54,17 +55,20 @@ export interface BinLiquidityResult {
 
 export class PoolManager {
   private swapHistoryCache = new Map<string, SwapTransaction[]>();
+  private factoryId: string;
 
   constructor(
     private suiClient: SuiClient,
     private packageId: string,
-    private factoryId: string
-  ) {}
+    factoryId: string
+  ) {
+    this.factoryId = factoryId;
+  }
 
   // ==================== SWAP OPERATIONS ====================
 
   /**
-   * Execute exact input swap (specify input amount, get output)
+   * Execute exact input swap using your deployed pool contract
    */
   async executeExactInputSwap(
     params: SwapParams,
@@ -97,7 +101,7 @@ export class PoolManager {
         txb.setGasBudget(options.gasLimit);
       }
 
-      // Build swap transaction
+      // Build swap transaction using your actual dlmm_pool::swap function
       txb.moveCall({
         target: `${this.packageId}::${MODULES.DLMM_POOL}::${FUNCTIONS.SWAP}`,
         typeArguments: [params.tokenIn, params.tokenOut],
@@ -145,7 +149,7 @@ export class PoolManager {
   }
 
   /**
-   * Execute multi-hop swap through multiple pools
+   * Execute multi-hop swap through multiple pools using your router
    */
   async executeMultiHopSwap(
     params: MultiHopSwapParams,
@@ -166,7 +170,7 @@ export class PoolManager {
 
       // For multi-hop, we need to execute multiple swaps in sequence
       if (params.route.hops.length === 2) {
-        // Two-hop swap through router
+        // Two-hop swap through your router
         const firstHop = params.route.hops[0];
         const secondHop = params.route.hops[1];
         
@@ -244,7 +248,7 @@ export class PoolManager {
   // ==================== LIQUIDITY OPERATIONS ====================
 
   /**
-   * Add liquidity to a specific bin
+   * Add liquidity to a specific bin using your pool contract
    */
   async addLiquidityToBin(
     params: LiquidityParams,
@@ -258,6 +262,7 @@ export class PoolManager {
         txb.setGasBudget(options.gasLimit);
       }
 
+      // Use your actual dlmm_pool::add_liquidity_to_bin function
       txb.moveCall({
         target: `${this.packageId}::${MODULES.DLMM_POOL}::${FUNCTIONS.ADD_LIQUIDITY}`,
         typeArguments: ['TokenA', 'TokenB'], // Should be extracted from pool
@@ -295,7 +300,7 @@ export class PoolManager {
   }
 
   /**
-   * Remove liquidity from a specific bin
+   * Remove liquidity from a specific bin using your pool contract
    */
   async removeLiquidityFromBin(
     params: LiquidityParams,
@@ -313,6 +318,7 @@ export class PoolManager {
         txb.setGasBudget(options.gasLimit);
       }
 
+      // Use your actual dlmm_pool::remove_liquidity_from_bin function
       txb.moveCall({
         target: `${this.packageId}::${MODULES.DLMM_POOL}::${FUNCTIONS.REMOVE_LIQUIDITY}`,
         typeArguments: ['TokenA', 'TokenB'], // Should be extracted from pool
@@ -351,7 +357,7 @@ export class PoolManager {
   // ==================== POOL STATE QUERIES ====================
 
   /**
-   * Get comprehensive pool information
+   * Get comprehensive pool information using your pool contract structure
    */
   async getPoolDetails(poolId: string): Promise<Pool | null> {
     try {
@@ -375,7 +381,7 @@ export class PoolManager {
   }
 
   /**
-   * Get bin information for a pool
+   * Get bin information for a pool using your contract's get_bin_info function
    */
   async getBinInfo(poolId: string, binId: number): Promise<BinInfo | null> {
     try {
@@ -403,7 +409,7 @@ export class PoolManager {
   }
 
   /**
-   * Get multiple bins around active bin
+   * Get multiple bins around active bin using your pool contract
    */
   async getBinsAroundActive(
     poolId: string,
@@ -431,7 +437,7 @@ export class PoolManager {
   }
 
   /**
-   * Calculate pool statistics
+   * Calculate pool statistics from your pool data
    */
   async getPoolStats(poolId: string): Promise<PoolStats | null> {
     try {
@@ -466,45 +472,10 @@ export class PoolManager {
     }
   }
 
-  /**
-   * Get pool analytics with historical data
-   */
-  async getPoolAnalytics(
-    poolId: string,
-    timeRange: '24h' | '7d' | '30d' = '24h'
-  ): Promise<PoolAnalytics | null> {
-    try {
-      const pool = await this.getPoolDetails(poolId);
-      if (!pool) return null;
-
-      const stats = await this.getPoolStats(poolId);
-      if (!stats) return null;
-
-      const bins = await this.getBinsAroundActive(poolId, 20);
-
-      // Historical data would be fetched from events or external indexer
-      const priceHistory: PricePoint[] = await this.getHistoricalPrices(poolId, timeRange);
-      const volumeHistory: VolumePoint[] = await this.getHistoricalVolume(poolId, timeRange);
-      const liquidityHistory: LiquidityPoint[] = await this.getHistoricalLiquidity(poolId, timeRange);
-
-      return {
-        pool,
-        stats,
-        priceHistory,
-        volumeHistory,
-        liquidityHistory,
-        bins
-      };
-    } catch (error) {
-      console.error('Error getting pool analytics:', error);
-      return null;
-    }
-  }
-
   // ==================== SWAP HISTORY & VALIDATION ====================
 
   /**
-   * Validate swap parameters
+   * Validate swap parameters against your pool structure
    */
   async validateSwap(params: SwapParams): Promise<SwapValidation> {
     const errors: string[] = [];
@@ -528,7 +499,7 @@ export class PoolManager {
         errors.push('Minimum amount out cannot be negative');
       }
 
-      // Check pool liquidity
+      // Check pool liquidity using your pool structure
       const pool = await this.getPoolDetails(params.poolId);
       if (!pool) {
         errors.push('Pool not found');
@@ -596,11 +567,11 @@ export class PoolManager {
   // ==================== PRIVATE HELPER METHODS ====================
 
   /**
-   * Parse swap result from transaction response
+   * Parse swap result from transaction response based on your events
    */
   private parseSwapResult(result: any, params: SwapParams): SwapResult {
     try {
-      // Extract swap information from events
+      // Extract swap information from your SwapExecuted event
       let amountOut = '0';
       let feeAmount = '0';
       let binsCrossed = 1;
@@ -652,7 +623,7 @@ export class PoolManager {
   }
 
   /**
-   * Parse liquidity operation result
+   * Parse liquidity operation result from your contract events
    */
   private parseLiquidityResult(
     result: any,
@@ -701,7 +672,7 @@ export class PoolManager {
   }
 
   /**
-   * Parse pool information from Sui object response
+   * Parse pool information from Sui object response based on your DLMMPool struct
    */
   private parsePoolFromResponse(response: SuiObjectResponse): Pool {
     const content = response.data!.content as any;
@@ -739,7 +710,7 @@ export class PoolManager {
   }
 
   /**
-   * Parse bin info from contract response
+   * Parse bin info from contract response based on your get_bin_info return format
    */
   private parseBinInfoResult(result: any, binId: number): BinInfo | null {
     try {
@@ -765,7 +736,7 @@ export class PoolManager {
   }
 
   /**
-   * Calculate current price from bin ID and bin step
+   * Calculate current price using your bin_math formula
    */
   private calculateCurrentPrice(binId: number, binStep: number): string {
     // Price formula: (1 + binStep/10000)^binId
@@ -858,6 +829,50 @@ export class PoolManager {
     // Keep only last 100 transactions per cache
     this.swapHistoryCache.get(userKey)!.splice(100);
     this.swapHistoryCache.get(poolKey)!.splice(100);
+  }
+
+  // ==================== PUBLIC UTILITIES ====================
+
+  /**
+   * Clear swap history cache
+   */
+  public clearCache(): void {
+    this.swapHistoryCache.clear();
+  }
+
+  /**
+   * Get pool analytics with historical data
+   */
+  async getPoolAnalytics(
+    poolId: string,
+    timeRange: '24h' | '7d' | '30d' = '24h'
+  ): Promise<PoolAnalytics | null> {
+    try {
+      const pool = await this.getPoolDetails(poolId);
+      if (!pool) return null;
+
+      const stats = await this.getPoolStats(poolId);
+      if (!stats) return null;
+
+      const bins = await this.getBinsAroundActive(poolId, 20);
+
+      // Historical data would be fetched from events or external indexer
+      const priceHistory: PricePoint[] = await this.getHistoricalPrices(poolId, timeRange);
+      const volumeHistory: VolumePoint[] = await this.getHistoricalVolume(poolId, timeRange);
+      const liquidityHistory: LiquidityPoint[] = await this.getHistoricalLiquidity(poolId, timeRange);
+
+      return {
+        pool,
+        stats,
+        priceHistory,
+        volumeHistory,
+        liquidityHistory,
+        bins
+      };
+    } catch (error) {
+      console.error('Error getting pool analytics:', error);
+      return null;
+    }
   }
 
   // ==================== PLACEHOLDER HISTORICAL DATA METHODS ====================

@@ -1,8 +1,7 @@
 /**
  * FactoryManager - Handles all factory-related operations
- * Manages pool discovery, creation, and factory state queries
- * 
  * REAL IMPLEMENTATION - Connects to your deployed factory contract
+ * Updated to match your actual contract structure from sui_dlmm::factory
  */
 
 import { SuiClient, SuiObjectResponse, PaginatedObjectsResponse } from '@mysten/sui/client';
@@ -155,6 +154,7 @@ export class FactoryManager {
 
   /**
    * Get pool ID for specific token pair and bin step - REAL CONTRACT INTEGRATION
+   * Uses the actual contract function from your deployed code
    */
   async getPoolIdForPair(
     tokenA: string,
@@ -182,7 +182,10 @@ export class FactoryManager {
         const optionBytes = result.results[0].returnValues[0][0];
         // Parse Option<ID> from Move - if Some, extract the ID
         if (Array.isArray(optionBytes) && optionBytes.length > 0) {
-          return this.bytesToObjectId(optionBytes);
+          // Option<T> is encoded as [0] for None or [1, ...bytes] for Some(T)
+          if (optionBytes[0] === 1 && optionBytes.length > 1) {
+            return this.bytesToObjectId(optionBytes.slice(1));
+          }
         }
       }
 
@@ -254,6 +257,7 @@ export class FactoryManager {
 
   /**
    * Create a new DLMM pool - REAL CONTRACT INTEGRATION
+   * Uses your actual factory::create_and_store_pool function
    */
   async createPool(
     params: PoolCreationParams,
@@ -265,18 +269,18 @@ export class FactoryManager {
       // Validate parameters
       const validation = this.validatePoolCreationParams(params);
       if (!validation.isValid) {
-        const response: PoolCreationResult = {
+        return {
           poolId: '',
           transactionDigest: '',
           success: false,
+          error: `Validation failed: ${validation.errors.join(', ')}`
         };
-        response.error = `Validation failed: ${validation.errors.join(', ')}`;
-        return response;
       }
 
       const txb = new Transaction();
       
       // Create the pool using the actual factory contract
+      // This matches your factory::create_and_store_pool function
       txb.moveCall({
         target: `${this.packageId}::${MODULES.FACTORY}::${FUNCTIONS.CREATE_POOL}`,
         typeArguments: [params.tokenA, params.tokenB],
@@ -306,65 +310,19 @@ export class FactoryManager {
       const poolId = this.extractPoolIdFromResult(result);
       const success = result.effects?.status?.status === 'success';
 
-      const response: PoolCreationResult = {
+      return {
         poolId: poolId || '',
         transactionDigest: result.digest,
         success,
+        error: !success ? (result.effects?.status?.error || 'Unknown error') : undefined
       };
-
-      if (!success) {
-        response.error = result.effects?.status?.error || 'Unknown error';
-      }
-
-      return response;
     } catch (error) {
-      const response: PoolCreationResult = {
+      return {
         poolId: '',
         transactionDigest: '',
         success: false,
+        error: `Failed to create pool: ${error}`
       };
-      response.error = `Failed to create pool: ${error}`;
-      return response;
-    }
-  }
-
-  /**
-   * Get pool creation recommendations based on token pair
-   */
-  async getPoolCreationRecommendations(
-    tokenA: string,
-    tokenB: string
-  ): Promise<{
-    recommendedBinStep: number;
-    estimatedGas: number;
-    existingPools: Pool[];
-    warnings: string[];
-  }> {
-    try {
-      // Get existing pools for this pair
-      const allPools = await this.getAllPools({
-        tokenA,
-        tokenB,
-      });
-
-      // Determine recommended bin step based on token types
-      const recommendedBinStep = this.calculateRecommendedBinStep(tokenA, tokenB);
-
-      // Check for potential issues
-      const warnings: string[] = [];
-      if (allPools.pools.length > 0) {
-        warnings.push('Pools already exist for this token pair');
-      }
-
-      return {
-        recommendedBinStep,
-        estimatedGas: 500000, // Estimated gas for pool creation
-        existingPools: allPools.pools,
-        warnings,
-      };
-    } catch (error) {
-      console.error('Error getting pool recommendations:', error);
-      throw new Error(`Failed to get recommendations: ${error}`);
     }
   }
 
@@ -372,6 +330,7 @@ export class FactoryManager {
 
   /**
    * Discover pools from factory using dynamic object fields - REAL IMPLEMENTATION
+   * This works with your factory's storage structure where pools are stored as dynamic fields
    */
   private async discoverPoolsFromFactory(): Promise<Pool[]> {
     try {
@@ -385,7 +344,7 @@ export class FactoryManager {
       // Process each dynamic field to extract pool data
       for (const field of response.data) {
         try {
-          // Get the pool wrapper object
+          // Get the pool wrapper object (PoolWrapper<CoinA, CoinB>)
           const poolResponse = await this.suiClient.getObject({
             id: field.objectId,
             options: {
@@ -398,23 +357,12 @@ export class FactoryManager {
             // Extract the actual pool from the wrapper
             const wrapperFields = (poolResponse.data.content as any).fields;
             if (wrapperFields.pool) {
-              // Get the pool object ID from the wrapper
-              const poolObjectId = wrapperFields.pool.fields?.id?.id || wrapperFields.pool;
-              
-              if (poolObjectId) {
-                const actualPoolResponse = await this.suiClient.getObject({
-                  id: poolObjectId,
-                  options: {
-                    showContent: true,
-                    showType: true,
-                  }
-                });
-
-                if (actualPoolResponse.data) {
-                  const pool = this.parsePoolFromObject(actualPoolResponse);
-                  if (pool) {
-                    pools.push(pool);
-                  }
+              // Get the nested pool object
+              const poolFields = wrapperFields.pool.fields;
+              if (poolFields) {
+                const pool = this.parsePoolFromWrapperFields(poolResponse, poolFields);
+                if (pool) {
+                  pools.push(pool);
                 }
               }
             }
@@ -433,6 +381,7 @@ export class FactoryManager {
 
   /**
    * Parse pool object from Sui response - REAL IMPLEMENTATION
+   * This handles your actual DLMMPool struct
    */
   private parsePoolFromObject(response: SuiObjectResponse): Pool | null {
     try {
@@ -471,6 +420,40 @@ export class FactoryManager {
   }
 
   /**
+   * Parse pool from wrapper fields (for factory discovery)
+   */
+  private parsePoolFromWrapperFields(response: SuiObjectResponse, poolFields: any): Pool | null {
+    try {
+      const content = response.data!.content as any;
+      
+      // Extract token types from the wrapper type
+      const typeMatch = content.type.match(/<([^,]+),\s*([^>]+)>/);
+      const tokenA = typeMatch?.[1] || '';
+      const tokenB = typeMatch?.[2] || '';
+
+      return {
+        id: poolFields.id?.id || response.data!.objectId,
+        tokenA: this.parseTokenInfo(tokenA),
+        tokenB: this.parseTokenInfo(tokenB),
+        binStep: parseInt(poolFields.bin_step || '25'),
+        reserveA: poolFields.reserves_a || '0',
+        reserveB: poolFields.reserves_b || '0',
+        activeBinId: parseInt(poolFields.active_bin_id || '1000'),
+        totalSwaps: poolFields.total_swaps || '0',
+        totalVolumeA: poolFields.total_volume_a || '0',
+        totalVolumeB: poolFields.total_volume_b || '0',
+        isActive: poolFields.is_active !== false,
+        currentPrice: this.calculateCurrentPrice(parseInt(poolFields.active_bin_id || '1000'), parseInt(poolFields.bin_step || '25')),
+        createdAt: poolFields.created_at || '0',
+        lastUpdated: Date.now().toString(),
+      };
+    } catch (error) {
+      console.error('Error parsing pool from wrapper:', error);
+      return null;
+    }
+  }
+
+  /**
    * Parse token info from coin type string
    */
   private parseTokenInfo(coinType: string): TokenInfo {
@@ -488,6 +471,7 @@ export class FactoryManager {
 
   /**
    * Calculate current price from active bin ID and bin step
+   * This matches your bin_math::calculate_bin_price function
    */
   private calculateCurrentPrice(activeBinId: number, binStep: number): string {
     // Price formula: (1 + binStep/10000)^binId
@@ -604,32 +588,6 @@ export class FactoryManager {
   }
 
   /**
-   * Calculate recommended bin step for token pair
-   */
-  private calculateRecommendedBinStep(tokenA: string, tokenB: string): number {
-    // Check if it's a stablecoin pair
-    const isStablePair = this.isStablecoinPair(tokenA, tokenB);
-    
-    if (isStablePair) {
-      return 10; // 0.1% for stable pairs
-    } else {
-      return 25; // 0.25% for volatile pairs
-    }
-  }
-
-  /**
-   * Check if token pair consists of stablecoins
-   */
-  private isStablecoinPair(tokenA: string, tokenB: string): boolean {
-    const stablecoins = ['USDC', 'USDT', 'DAI', 'BUSD'];
-    
-    const symbolA = tokenA.split('::').pop()?.toUpperCase() || '';
-    const symbolB = tokenB.split('::').pop()?.toUpperCase() || '';
-    
-    return stablecoins.includes(symbolA) && stablecoins.includes(symbolB);
-  }
-
-  /**
    * Parse allowed bin steps from factory response
    */
   private parseAllowedBinSteps(binStepsField: any): number[] {
@@ -656,6 +614,7 @@ export class FactoryManager {
 
   /**
    * Extract pool ID from transaction result - REAL IMPLEMENTATION
+   * Looks for the PoolCreatedInFactory event from your contract
    */
   private extractPoolIdFromResult(result: any): string | null {
     try {
@@ -668,7 +627,7 @@ export class FactoryManager {
         }
       }
 
-      // Look for created objects
+      // Look for created objects (PoolWrapper)
       if (result.objectChanges) {
         for (const change of result.objectChanges) {
           if (change.type === 'created' && change.objectType?.includes('PoolWrapper')) {
